@@ -466,6 +466,34 @@ elif selected == "LDA Visualization":
     st.title("📊 LDA Visualization")
     components.html(LDA_HTML, height=800, scrolling=True)
 
+    data = [
+        ["1", "Evaluasi Umum", "like, good, would, time, really, much, even, love, could, better"],
+        ["2", "Sejarah & Fiksi", "history, world, god, american, war, view, english, mystery, fiction, modern"],
+        ["3", "Visual & Warna", "color, black, white, ball, red, green, match, regret, jack, elsewhere"],
+        ["4", "Fotografi & Teknologi", "camera, smell, digital, shot, speed, lens, gun, mouse, hell, drop"],
+        ["5", "Pengalaman Produk", "great, work, year, bought, well, old, two, back, used, would"],
+        ["6", "Mainan & Hewan", "toy, dog, baby, car, hair, low, room, value, extra, cat"],
+        ["7", "Buku & Membaca", "book, read, story, life, reading, author, child, written, page, wonderful"],
+        ["8", "Film & Video", "movie, dvd, film, show, watch, version, video, seen, original, funny"],
+        ["9", "Musik & Audio", "album, song, music, sound, fan, band, track, heard, listen, rock"],
+        ["10", "Format & Spesifikasi", "weight, key, accurate, bible, format, buyer, laptop, six, adapter, letter"],
+        ["11", "Elektronik & Daya", "battery, unit, phone, power, player, cable, charge, switch, warranty, failed"],
+        ["12", "Pembelajaran & Panduan", "cover, learn, excellent, example, help, guide, useful, edition, basic, class"],
+        ["13", "Uang & Nilai", "money, waste, save, support, paper, print, spent, dollar, sell"],
+        ["14", "E-commerce", "amazon, item, box, received, ordered, order, return, system, company, computer"],
+        ["15", "Game & Hiburan", "game, play, fun, coffee, playing, drive, cup, graphic, player, carry"]
+    ]
+
+    st.title("Tabel Kategori dan Kata umum")
+
+    md_table = "| No | Kategori                 | Kata umum                                               |\n"
+    md_table += "|----|--------------------------|---------------------------------------------------------|\n"
+
+    for row in data:
+        md_table += f"| {row[0]}  | {row[1]} | {row[2]} |\n"
+
+    st.markdown(md_table)
+
 elif selected == "Model Evaluation":
     st.header("📊 Model Evaluation")
 
@@ -479,16 +507,27 @@ elif selected == "Model Evaluation":
 
     if slcted_model == "BERT-LSTM-CNN":
         MDL_PATH = f"{BASE_PATH}/bert-lstm-cnn"
+        st.markdown("Untuk cek laporan lebih lanjut, dapat membuka [link laporan BERT-LSTM-CNN](https://wandb.ai/masriq/sentiment-analysis-hybrid/reports/Training-Report--VmlldzoxMjAyMzYwNg?accessToken=prnuymr17257syith3higdj2me13miwk61h975fnhcodc7iptdao7nbjeq4f9r4q)")
+
     elif slcted_model == "BERT-LSTM-GCN":
         MDL_PATH = f"{BASE_PATH}/bert-lstm-gcn"
+        st.markdown("Untuk cek laporan lebih lanjut, dapat membuka [link laporan BERT-LSTM-GCN](https://api.wandb.ai/links/masriq/dnk86q9m)")
+
     elif slcted_model == "BERT":
         MDL_PATH = f"{BASE_PATH}/bert"
+        st.markdown("Untuk cek laporan lebih lanjut, dapat membuka [link laporan BERT](https://wandb.ai/hkacode/sentiment-analysis-hybrid/reports/Model-BERT-Training-Report--VmlldzoxMjAzNTI0OQ?accessToken=zy1yhd8a1gqvznutyzpjacmq1enqf8yzg09t5weafu5gikozipngbimebdfh3l3h)")
+
     elif slcted_model == "CNN":
         MDL_PATH = f"{BASE_PATH}/cnn"
+        st.markdown("Untuk cek laporan lebih lanjut, dapat membuka [link laporan CNN](https://wandb.ai/hkacode/sentiment-analysis-hybrid/reports/Training-Report--VmlldzoxMjAzNDE2MQ?accessToken=z70w4fkedok8jmn8nj8qho1fzwoycsysizlg1rb77inaizz0hd4aez4ih2pbomz6)")
+
     elif slcted_model == "GCN":
         MDL_PATH = f"{BASE_PATH}/gcn"
+        st.markdown("Untuk cek laporan lebih lanjut, dapat membuka [link laporan GCN](https://api.wandb.ai/links/hkacode/o5ef19js)")
+
     elif slcted_model == "LSTM":
         MDL_PATH = f"{BASE_PATH}/lstm"
+        st.markdown("Untuk cek laporan lebih lanjut, dapat membuka [link laporan LSTM](https://api.wandb.ai/links/hkacode/xh7y704a)")
 
     st.write(f"🔍 **Evaluasi Model {slcted_model}**")
     col1 = st.columns([1, 4, 1])
@@ -500,9 +539,11 @@ elif selected == "Model Evaluation":
     with col2[1]:
         st.image(f"{MDL_PATH}/{slcted_model.lower()}-conf-matrix.png", use_container_width=True)
 
-    # Menampilkan Graph Model
-    st.write(f"🔍 **Classification Report Model {slcted_model}**")
-    st.image(f"{MODEL_PATH}/cr-{slcted_model.lower()}.png", use_container_width=True)
+    st.write(f"🔍 **Model Evaluation {slcted_model}**")
+    col3 = st.columns([1, 4, 1])
+    with col3[1]:
+        st.image(f"{MDL_PATH}/cr-{slcted_model.lower()}.png", use_container_width=True)
+
 
 if model and tokenizer:
     user_input = st.text_area("Your Text:", "This movie was fantastic! Highly recommended.", height=150)
