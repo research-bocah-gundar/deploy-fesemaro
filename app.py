@@ -5,6 +5,16 @@ Module for deploying streamlit apps
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_option_menu import option_menu
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from transformers import AutoTokenizer, AutoConfig, BertModel
+from safetensors.torch import load_file
+import numpy as np # For adjacency matrix
+# Placeholder for linguistic features - replace if using real features
+import textstat
+import re
+
 
 st.set_page_config(
     layout="wide",
@@ -76,6 +86,268 @@ LDA_HTML = """
 </script>
 """
 
+
+class GraphConvolution(nn.Module):
+    """
+    Simple GCN layer placeholder based on Kipf & Welling.
+    Replace with your actual implementation if different.
+    """
+    def __init__(self, in_features, out_features, bias=True):
+        super(GraphConvolution, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = nn.Parameter(torch.FloatTensor(in_features, out_features))
+        if bias:
+            self.bias = nn.Parameter(torch.FloatTensor(out_features))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1. / np.sqrt(self.weight.size(1))
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.bias is not None:
+            self.bias.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, adj):
+        # Input shape: [batch, seq_len, in_features]
+        # Adj shape: [batch, seq_len, seq_len]
+        # Weight shape: [in_features, out_features]
+
+        # Perform the matrix multiplication for node features
+        # Input * Weight -> [batch, seq_len, out_features]
+        support = torch.matmul(input, self.weight)
+
+        # Perform the neighborhood aggregation using the adjacency matrix
+        # Adj * Support -> [batch, seq_len, out_features]
+        output = torch.bmm(adj, support) # Batch matrix multiplication
+
+        if self.bias is not None:
+            return output + self.bias
+        else:
+            return output
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' \
+               + str(self.in_features) + ' -> ' \
+               + str(self.out_features) + ')'
+
+
+# Provided BERTBiLSTMGCNModel Class
+class BERTBiLSTMGCNModel(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.bert_model_name = config['bert_model_name']
+        self.bert_config = AutoConfig.from_pretrained(self.bert_model_name)
+        self.bert = BertModel.from_pretrained(self.bert_model_name, config=self.bert_config)
+        bert_dim = self.bert_config.hidden_size
+        hidden_dim = config['hidden_dim']
+
+        if config.get('freeze_bert', False): # Use .get for safety
+            print("Freezing BERT parameters.")
+            for param in self.bert.parameters():
+                param.requires_grad = False
+
+        self.lstm = nn.LSTM(bert_dim, hidden_dim, config['lstm_layers'],
+                            bidirectional=True, batch_first=True,
+                            dropout=config['dropout'] if config['lstm_layers'] > 1 else 0)
+
+        self.gcn_layers = nn.ModuleList()
+        # GCN operates on BERT output dimension first
+        self.gcn_layers.append(GraphConvolution(bert_dim, hidden_dim)) # First layer input is bert_dim
+        for _ in range(1, config['gcn_layers']):
+            self.gcn_layers.append(GraphConvolution(hidden_dim, hidden_dim)) # Subsequent layers use hidden_dim
+
+        self.lstm_attention = nn.Linear(hidden_dim * 2, 1)
+        self.lstm_proj = nn.Linear(hidden_dim * 2, hidden_dim)
+        # Assuming last GCN layer output dim matches hidden_dim, projection might not be strictly needed
+        # but keeping it if it was part of the original design or for flexibility
+        self.gcn_proj = nn.Linear(hidden_dim, hidden_dim)
+
+        self.use_linguistic = config.get('use_linguistic_features', False) # Use .get
+        linguistic_dim = config.get('linguistic_feat_dim', 0) # Use .get
+
+        if self.use_linguistic and linguistic_dim > 0:
+            self.linguistic_proj = nn.Linear(linguistic_dim, hidden_dim)
+            fusion_dim = hidden_dim * 3 # LSTM + GCN + Ling
+        else:
+            fusion_dim = hidden_dim * 2 # LSTM + GCN
+
+        self.fusion = nn.Linear(fusion_dim, hidden_dim)
+        self.classifier = nn.Linear(hidden_dim, config['num_classes'])
+        self.dropout = nn.Dropout(config['dropout'])
+
+    def forward(self, input_ids, attention_mask, adj_matrix, linguistic_features=None, **kwargs):
+        bert_outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        sequence_output = bert_outputs.last_hidden_state # [batch, seq_len, bert_dim]
+        sequence_output_dropout = self.dropout(sequence_output)
+
+        # --- BiLSTM Path ---
+        lstm_output, _ = self.lstm(sequence_output_dropout) # [batch, seq_len, hidden*2]
+        attn_weights = F.softmax(self.lstm_attention(lstm_output), dim=1)
+        lstm_pooled = torch.sum(attn_weights * lstm_output, dim=1) # [batch, hidden*2]
+        lstm_features = F.leaky_relu(self.lstm_proj(lstm_pooled)) # [batch, hidden]
+        lstm_features = self.dropout(lstm_features)
+
+        # --- GCN Path ---
+        gcn_input = sequence_output # Use original BERT output for GCN [batch, seq_len, bert_dim]
+        gcn_output = gcn_input
+        for i, gcn_layer in enumerate(self.gcn_layers):
+             # GCN expects input [batch, seq_len, features] and adj [batch, seq_len, seq_len]
+             gcn_output = gcn_layer(gcn_output, adj_matrix) # Output: [batch, seq_len, hidden_dim]
+             if i < len(self.gcn_layers) - 1: # Apply activation and dropout between layers
+                gcn_output = F.leaky_relu(gcn_output)
+                gcn_output = self.dropout(gcn_output)
+             else: # Apply activation only after the last layer (before pooling)
+                 gcn_output = F.leaky_relu(gcn_output)
+
+        # Apply dropout after the last GCN layer's activation, before pooling
+        gcn_output_dropout = self.dropout(gcn_output)
+
+        # Max pooling for GCN over the sequence length dimension
+        gcn_pooled = torch.max(gcn_output_dropout, dim=1)[0] # [batch, hidden_dim]
+
+        # Optional GCN projection - Uncomment if used in training
+        # gcn_features = F.leaky_relu(self.gcn_proj(gcn_pooled))
+        # gcn_features = self.dropout(gcn_features)
+        gcn_features = gcn_pooled # If no final projection layer was used
+
+        # --- Combine Features ---
+        combined_features = [lstm_features, gcn_features] # [batch, hidden], [batch, hidden]
+
+        if self.use_linguistic and linguistic_features is not None and config.get('linguistic_feat_dim', 0) > 0:
+             linguistic_features = linguistic_features.float() # Ensure float type
+             # Check if shape is already [batch, ling_dim], if not, maybe needs unsqueezing
+             if linguistic_features.dim() == 1:
+                 linguistic_features = linguistic_features.unsqueeze(0) # Add batch dim if needed
+
+             ling_features = F.leaky_relu(self.linguistic_proj(linguistic_features)) # [batch, hidden]
+             ling_features = self.dropout(ling_features)
+             combined_features.append(ling_features) # Append [batch, hidden]
+
+        combined = torch.cat(combined_features, dim=1) # Concatenate along feature dimension
+
+        fused = F.leaky_relu(self.fusion(combined))
+        fused = self.dropout(fused)
+        logits = self.classifier(fused) # [batch, num_classes]
+
+        return logits
+
+# --- 2. Configuration and Loading ---
+
+# Provided Config (adjust path if needed)
+config = {
+    "model_type": "bert_lstm_gcn",
+    "bert_model_name": "bert-base-uncased",
+    "max_length": 128,
+    "hidden_dim": 128,
+    "lstm_layers": 1,
+    "gcn_layers": 2,
+    "dropout": 0.3,
+    "num_classes": 2, # Assuming 2 classes (Neg/Pos)
+    "model_save_path": "best_model_blg.safetensors", # *** USE THIS PATH ***
+    "device": 'cuda' if torch.cuda.is_available() else 'cpu',
+    "use_linguistic_features": True, # *** CHECK THIS *** Set based on trained model
+    "linguistic_feat_dim": 9,    # *** CHECK THIS *** Must match trained model if used
+    "freeze_bert": False # Should match training, affects model instantiation if layers were removed
+}
+
+MODEL_PATH = config["model_save_path"]
+TOKENIZER_NAME = config["bert_model_name"]
+MAX_LENGTH = config["max_length"]
+DEVICE = torch.device(config["device"])
+
+# --- Helper Functions for Inference Input ---
+
+def generate_adjacency_matrix(size):
+    """
+    Generates a placeholder adjacency matrix for inference.
+    !!! ASSUMPTION: Using Identity matrix. Replace if training used something else.!!!
+    Returns a batch of identity matrices (batch size 1).
+    """
+    adj = np.identity(size, dtype=np.float32)
+    # Add batch dimension
+    adj_batch = np.expand_dims(adj, axis=0)
+    return torch.from_numpy(adj_batch)
+
+# Placeholder for linguistic feature extraction
+# !!! IMPORTANT: Replace this with YOUR actual feature extraction logic !!!
+def extract_linguistic_features(text, feature_dim):
+    """
+    Placeholder function to extract linguistic features.
+    Replace with actual logic matching your training process.
+    """
+    # Example features using textstat (install with pip install textstat)
+    features = []
+    try:
+        features.append(textstat.flesch_reading_ease(text))
+        features.append(textstat.smog_index(text))
+        features.append(textstat.flesch_kincaid_grade(text))
+        features.append(textstat.coleman_liau_index(text))
+        features.append(textstat.automated_readability_index(text))
+        features.append(textstat.dale_chall_readability_score(text))
+        features.append(textstat.linsear_write_formula(text))
+        features.append(textstat.gunning_fog(text))
+        # Feature 9: Count of difficult words (example)
+        features.append(textstat.difficult_words(text))
+
+        # Ensure we have the correct number of features
+        if len(features) > feature_dim:
+            features = features[:feature_dim]
+        while len(features) < feature_dim:
+            features.append(0.0) # Pad with 0 if fewer features extracted
+
+    except Exception as e:
+        # Handle potential errors in textstat (e.g., empty string)
+        print(f"Warning: Error extracting linguistic features: {e}. Returning zeros.")
+        features = [0.0] * feature_dim
+
+    # Return as a numpy array (will be converted to tensor later)
+    # Ensure shape is (feature_dim,) or (1, feature_dim)
+    features_np = np.array(features, dtype=np.float32)
+    # Add batch dimension
+    features_batch = np.expand_dims(features_np, axis=0)
+    return torch.from_numpy(features_batch)
+
+# --- Cached Loading ---
+
+@st.cache_resource # Use cache_resource for non-hashable objects like models
+def load_model_and_tokenizer(model_path, config_dict, model_class):
+    """Loads the tokenizer and the model with weights from safetensors."""
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(config_dict['bert_model_name'])
+        # Instantiate the model structure using the config dict
+        model = model_class(config_dict)
+
+        # Load the state dict from the safetensors file
+        print(f"Loading model from {model_path}...")
+        state_dict = load_file(model_path, device="cpu") # Load to CPU first
+
+        # Load the state dict into the model structure
+        # Handle potential missing/unexpected keys (common if freeze_bert differs, etc.)
+        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+        if missing_keys:
+            st.warning(f"Missing keys when loading state_dict: {missing_keys}")
+        if unexpected_keys:
+            st.warning(f"Unexpected keys when loading state_dict: {unexpected_keys}")
+
+        model.to(DEVICE) # Move model to the determined device
+        model.eval() # Set model to evaluation mode
+        print(f"Model and Tokenizer loaded successfully to {DEVICE}!")
+        return model, tokenizer
+    except FileNotFoundError:
+        st.error(f"Error: Model file not found at {model_path}. Please ensure it's in the correct directory.")
+        return None, None
+    except Exception as e:
+        st.error(f"An error occurred during loading: {e}")
+        st.error(f"Details: {type(e).__name__}")
+        st.error("Check console logs for more details. Ensure the GCN/Model class definitions match the saved model's architecture and config.")
+        return None, None
+
+# Attempt to load
+model, tokenizer = load_model_and_tokenizer(MODEL_PATH, config, BERTBiLSTMGCNModel)
+
+# Sidebar dengan Option Menu
 with st.sidebar:
     selected = option_menu(
         menu_title="Menu",
@@ -175,20 +447,95 @@ elif selected == "Model Evaluation":
     with col2[1]:
         st.image(f"{MDL_PATH}/{slcted_model.lower()}-conf-matrix.png", use_container_width=True)
 
-    st.write(f"🔍 **Model Evaluation {slcted_model}**")
-    col3 = st.columns([1, 4, 1])
-    with col3[1]:
-        st.image(f"{MDL_PATH}/cr-{slcted_model.lower()}.png", use_container_width=True)
+    # Menampilkan Graph Model
+    st.write(f"🔍 **Graph Model {selected_model}**")
+    st.image(f"{MODEL_PATH}/{selected_model.lower()}-graph.png", use_container_width=True)
+
+# --- 4. User Input and Prediction ---
+if model and tokenizer: # Only show input if loading was successful
+    user_input = st.text_area("Your Text:", "This movie was fantastic! Highly recommended.", height=150)
+
+    if st.button("Analyze Sentiment"):
+        if user_input:
+            try:
+                # 1. Prepare Tokenizer Input
+                inputs = tokenizer(
+                    user_input,
+                    return_tensors="pt",
+                    max_length=MAX_LENGTH,
+                    padding="max_length",
+                    truncation=True
+                )
+                input_ids = inputs["input_ids"].to(DEVICE)
+                attention_mask = inputs["attention_mask"].to(DEVICE)
+
+                # 2. Prepare Adjacency Matrix
+                # Using placeholder identity matrix generation
+                adj_matrix = generate_adjacency_matrix(MAX_LENGTH).to(DEVICE)
+
+                # 3. Prepare Linguistic Features (if needed)
+                linguistic_features_tensor = None
+                if config.get('use_linguistic_features', False) and config.get('linguistic_feat_dim', 0) > 0:
+                    linguistic_features_tensor = extract_linguistic_features(
+                        user_input,
+                        config['linguistic_feat_dim']
+                    ).to(DEVICE)
+                    st.write(f"Linguistic Features Extracted (shape): {linguistic_features_tensor.shape}")
 
 
-elif selected == "User Input":
-    st.title("✍️ User Input")
+                # 4. Make Prediction
+                with torch.no_grad():
+                    logits = model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        adj_matrix=adj_matrix,
+                        linguistic_features=linguistic_features_tensor
+                    )
 
-    with st.expander("📝 Provide Text for Analysis", expanded=True):
-        user_text = st.text_area("Enter text for analysis:", "Type some text here...")
-        topic_slider = st.slider("Select Number of Topics", min_value=5, max_value=20, value=10)
+                # 5. Process Output
+                probabilities = F.softmax(logits, dim=1)
+                prediction_idx = torch.argmax(probabilities, dim=1).item()
 
-        if st.button("Analyze Text"):
-            st.write(f"Analyzing text for {topic_slider} topics (example):")
-            st.info(f"Input text: '{user_text[:100]}...'")
-            st.success("Analysis placeholder complete!")
+                # Map index to label (Customize based on your classes)
+                sentiment_labels = {0: "Negative", 1: "Positive"} # Check if this matches your training labels
+                predicted_sentiment = sentiment_labels.get(prediction_idx, "Unknown")
+                confidence = probabilities[0, prediction_idx].item()
+                
+
+                # filter predict threshold to 0.8 for fixing sarcasm issue
+                if confidence < 0.8:
+                    predicted_sentiment = "Ambiguous"
+
+                # 6. Display Result
+                st.subheader("Analysis Result:")
+                if predicted_sentiment == "Positive":
+                    st.success(f"Predicted Sentiment: **{predicted_sentiment}**")
+                elif predicted_sentiment == "Negative":
+                    st.error(f"Predicted Sentiment: **{predicted_sentiment}**")
+                else:
+                    st.info(f"Predicted Sentiment: **{predicted_sentiment}**")
+
+                st.write(f"Confidence: {confidence:.4f}")
+
+                st.write("Probabilities:")
+                probs_dict = {label: prob.item() for label, prob in zip(sentiment_labels.values(), probabilities[0])}
+                st.json(probs_dict)
+
+                # Optional: Display generated inputs for debugging
+                with st.expander("Show Model Inputs (for debugging)"):
+                    st.write("**Input IDs (truncated):**", input_ids[:, :20].cpu().numpy())
+                    st.write("**Attention Mask (truncated):**", attention_mask[:, :20].cpu().numpy())
+                    st.write("**Adj Matrix (Top-Left Corner):**", adj_matrix[0, :5, :5].cpu().numpy())
+                    if linguistic_features_tensor is not None:
+                        st.write("**Linguistic Features:**", linguistic_features_tensor.cpu().numpy())
+
+
+            except Exception as e:
+                st.error(f"An error occurred during prediction: {e}")
+                st.error(f"Details: {type(e).__name__}")
+                st.error("Check console logs.")
+        else:
+            st.warning("Please enter some text to analyze.")
+else:
+    st.warning("Model could not be loaded. Please check the file path, class definitions, config, and console logs.")
+    st.warning(f"Attempted to load from: {MODEL_PATH}") 
