@@ -89,52 +89,54 @@ with st.sidebar:
                           "width": "100%" },  # Sidebar transparan
          }    )
 
-# --- Main Content Area ---
 if selected == "EDA":
     st.header("📊 Exploratory Data Analysis (EDA)")
+
     st.markdown("""
         <style>
-        img {
-            border-radius: 10px;
-        }
-        @media (max-width: 768px) {  /* Tablet & Mobile */
-        img { width: 100% !important; height: auto !important; }
-        }
-        @media (min-width: 1024px) {  /* Desktop */
-            img { width: 90% !important; height: auto !important; }
-        }
+            img {
+                border-radius: 10px;
+                display: block;
+                margin: auto;
+            }
+            @media (max-width: 768px) {
+                [data-testid="stImageContainer"] img { width: 100% !important; height: auto !important; }
+            }
+            @media (min-width: 1024px) {
+                [data-testid="stImageContainer"] img { width: 90% !important; height: auto !important; }
+            }
         </style>
         """, unsafe_allow_html=True)
 
-    # 1. Distribution of Review Sentiment (Satu gambar besar)
     st.subheader("Distribusi Sentimen")
-    st.image("assets/img/eda/distribution-of-review-sentiment.png", use_container_width=True)
+    col = st.columns([1, 3, 1])
+    with col[1]:
+        st.image("assets/img/eda/distri-review-sentiment.png", use_container_width=True)
 
-    # 2. Distribusi Review Length (Dua gambar dalam satu baris)
     st.subheader("Distribusi Panjang Review")
-    col1, col2 = st.columns([1, 1])  # Rasio kolom 1:1 untuk keseimbangan
+    col1, col2 = st.columns(2)
     with col1:
-        st.image("assets/img/eda/distribution-of-review-length(char).png", use_container_width=True)
+        sub_col1 = st.columns([1, 5, 1])
+        with sub_col1[1]:
+            st.image("assets/img/eda/distri-review-length(char).png", use_container_width=True)
     with col2:
-        st.image("assets/img/eda/distribution-of-review-sentiment(word).png", use_container_width=True)
+        sub_col2 = st.columns([1, 5, 1])
+        with sub_col2[1]:
+            st.image("assets/img/eda/distri-review-sentiment(word).png", use_container_width=True)
 
-    # 3. Deteksi Outlier (Dua gambar dalam satu baris)
     st.subheader("Deteksi Outlier")
-    col3, col4 = st.columns([1, 1])
-    with col3:
-        st.image("assets/img/eda/deteksi-outlier(char).png", use_container_width=True)
+    col4, col5 = st.columns(2)
     with col4:
+        st.image("assets/img/eda/deteksi-outlier(char).png", use_container_width=True)
+    with col5:
         st.image("assets/img/eda/deteksi-outlier(word).png", use_container_width=True)
 
-    # 4. Positive vs Negative Reviews WordCloud (Dua gambar dalam satu baris)
     st.subheader("WordCloud: Positive vs Negative Reviews")
-    col5, col6 = st.columns([1, 1])
-    with col5:
-        st.image("assets/img/eda/positive-reviews-word.png", use_container_width=True)
+    col6, col7 = st.columns(2)
     with col6:
+        st.image("assets/img/eda/positive-reviews-word.png", use_container_width=True)
+    with col7:
         st.image("assets/img/eda/negative-reviews-word.png", use_container_width=True)
-
-
 
 elif selected == "pyLDAvis Visualization":
     st.title("📊 pyLDAvis Visualization")
@@ -153,36 +155,35 @@ elif selected == "Model Evaluation":
     st.subheader(f"📈 Evaluasi Model: {selected_model}")
 
     # Konten berbeda berdasarkan model yang dipilih
-    base_path = "assets/img/modeling"
-    model_path = f"{base_path}/default"
+    BASE_PATH = "assets/img/modeling"
+    MODEL_PATH = f"{BASE_PATH}/default"
 
     if selected_model == "BERT-LSTM-CNN":
-        model_path = f"{base_path}/bert-lstm-cnn"
+        MODEL_PATH = f"{BASE_PATH}/bert-lstm-cnn"
     elif selected_model == "BERT-LSTM-GCN":
-        model_path = f"{base_path}/bert-lstm-gcn"
+        MODEL_PATH = f"{BASE_PATH}/bert-lstm-gcn"
     elif selected_model == "BERT":
-        model_path = f"{base_path}/bert"
+        MODEL_PATH = f"{BASE_PATH}/bert"
     elif selected_model == "CNN":
-        model_path = f"{base_path}/cnn"
+        MODEL_PATH = f"{BASE_PATH}/cnn"
     elif selected_model == "GCN":
-        model_path = f"{base_path}/gcn"
+        MODEL_PATH = f"{BASE_PATH}/gcn"
     elif selected_model == "LSTM":
-        model_path = f"{base_path}/lstm"
+        MODEL_PATH = f"{BASE_PATH}/lstm"
 
     # Menampilkan Evaluasi Model
     st.write(f"🔍 **Evaluasi Model {selected_model}**")
-    st.image(f"{model_path}/{selected_model.lower()}-training-curves.png", use_container_width=True)
+    st.image(f"{MODEL_PATH}/{selected_model.lower()}-training-curves.png", use_container_width=True)
     st.write(f"Model {selected_model} digunakan untuk meningkatkan performa klasifikasi.")
 
     # Menampilkan Confusion Matrix
     st.write(f"🔍 **Confusion Matrix Model {selected_model}**")
-    st.image(f"{model_path}/{selected_model.lower()}-conf-matrix.png", use_container_width=True)
+    st.image(f"{MODEL_PATH}/{selected_model.lower()}-conf-matrix.png", use_container_width=True)
 
     # Menampilkan Graph Model
     st.write(f"🔍 **Graph Model {selected_model}**")
-    st.image(f"{model_path}/{selected_model.lower()}-graph.png", use_container_width=True)
+    st.image(f"{MODEL_PATH}/{selected_model.lower()}-graph.png", use_container_width=True)
 
-        
 elif selected == "User Input":
     st.title("✍️ User Input")
 
