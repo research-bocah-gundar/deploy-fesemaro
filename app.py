@@ -544,79 +544,80 @@ elif selected == "Model Evaluation":
     with col3[1]:
         st.image(f"{MDL_PATH}/cr-{slcted_model.lower()}.png", use_container_width=True)
 
+elif selected == "User Input":
+    st.title("📊 Simulasi bagaimana model bekerja")
+    if model and tokenizer:
+        user_input = st.text_area("Your Text:", "This movie was fantastic! Highly recommended.", height=150)
 
-if model and tokenizer:
-    user_input = st.text_area("Your Text:", "This movie was fantastic! Highly recommended.", height=150)
-
-    if st.button("Analyze Sentiment"):
-        if user_input:
-            try:
-                inputs = tokenizer(
-                    user_input,
-                    return_tensors="pt",
-                    max_length=MAX_LENGTH,
-                    padding="max_length",
-                    truncation=True
-                )
-                input_ids = inputs["input_ids"].to(DEVICE)
-                attention_mask = inputs["attention_mask"].to(DEVICE)
-
-                adj_matrix = generate_adjacency_matrix(MAX_LENGTH).to(DEVICE)
-
-                linguistic_features_tensor = None
-                if config.get('use_linguistic_features', False) and config.get('linguistic_feat_dim', 0) > 0:
-                    linguistic_features_tensor = extract_linguistic_features(
+        if st.button("Analyze Sentiment"):
+            if user_input:
+                try:
+                    inputs = tokenizer(
                         user_input,
-                        config['linguistic_feat_dim']
-                    ).to(DEVICE)
-                    st.write(f"Linguistic Features Extracted (shape): {linguistic_features_tensor.shape}")
-
-                with torch.no_grad():
-                    logits = model(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        adj_matrix=adj_matrix,
-                        linguistic_features=linguistic_features_tensor
+                        return_tensors="pt",
+                        max_length=MAX_LENGTH,
+                        padding="max_length",
+                        truncation=True
                     )
+                    input_ids = inputs["input_ids"].to(DEVICE)
+                    attention_mask = inputs["attention_mask"].to(DEVICE)
 
-                probabilities = F.softmax(logits, dim=1)
-                prediction_idx = torch.argmax(probabilities, dim=1).item()
+                    adj_matrix = generate_adjacency_matrix(MAX_LENGTH).to(DEVICE)
 
-                sentiment_labels = {0: "Negative", 1: "Positive"}
-                predicted_sentiment = sentiment_labels.get(prediction_idx, "Unknown")
-                confidence = probabilities[0, prediction_idx].item()
-                
-                if confidence < 0.8:
-                    predicted_sentiment = "Ambiguous"
+                    linguistic_features_tensor = None
+                    if config.get('use_linguistic_features', False) and config.get('linguistic_feat_dim', 0) > 0:
+                        linguistic_features_tensor = extract_linguistic_features(
+                            user_input,
+                            config['linguistic_feat_dim']
+                        ).to(DEVICE)
+                        st.write(f"Linguistic Features Extracted (shape): {linguistic_features_tensor.shape}")
 
-                st.subheader("Analysis Result:")
-                if predicted_sentiment == "Positive":
-                    st.success(f"Predicted Sentiment: **{predicted_sentiment}**")
-                elif predicted_sentiment == "Negative":
-                    st.error(f"Predicted Sentiment: **{predicted_sentiment}**")
-                else:
-                    st.info(f"Predicted Sentiment: **{predicted_sentiment}**")
+                    with torch.no_grad():
+                        logits = model(
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            adj_matrix=adj_matrix,
+                            linguistic_features=linguistic_features_tensor
+                        )
 
-                st.write(f"Confidence: {confidence:.4f}")
+                    probabilities = F.softmax(logits, dim=1)
+                    prediction_idx = torch.argmax(probabilities, dim=1).item()
 
-                st.write("Probabilities:")
-                probs_dict = {label: prob.item() for label, prob in zip(sentiment_labels.values(), probabilities[0])}
-                st.json(probs_dict)
+                    sentiment_labels = {0: "Negative", 1: "Positive"}
+                    predicted_sentiment = sentiment_labels.get(prediction_idx, "Unknown")
+                    confidence = probabilities[0, prediction_idx].item()
+                    
+                    if confidence < 0.8:
+                        predicted_sentiment = "Ambiguous"
 
-                with st.expander("Show Model Inputs (for debugging)"):
-                    st.write("**Input IDs (truncated):**", input_ids[:, :20].cpu().numpy())
-                    st.write("**Attention Mask (truncated):**", attention_mask[:, :20].cpu().numpy())
-                    st.write("**Adj Matrix (Top-Left Corner):**", adj_matrix[0, :5, :5].cpu().numpy())
-                    if linguistic_features_tensor is not None:
-                        st.write("**Linguistic Features:**", linguistic_features_tensor.cpu().numpy())
+                    st.subheader("Analysis Result:")
+                    if predicted_sentiment == "Positive":
+                        st.success(f"Predicted Sentiment: **{predicted_sentiment}**")
+                    elif predicted_sentiment == "Negative":
+                        st.error(f"Predicted Sentiment: **{predicted_sentiment}**")
+                    else:
+                        st.info(f"Predicted Sentiment: **{predicted_sentiment}**")
+
+                    st.write(f"Confidence: {confidence:.4f}")
+
+                    st.write("Probabilities:")
+                    probs_dict = {label: prob.item() for label, prob in zip(sentiment_labels.values(), probabilities[0])}
+                    st.json(probs_dict)
+
+                    with st.expander("Show Model Inputs (for debugging)"):
+                        st.write("**Input IDs (truncated):**", input_ids[:, :20].cpu().numpy())
+                        st.write("**Attention Mask (truncated):**", attention_mask[:, :20].cpu().numpy())
+                        st.write("**Adj Matrix (Top-Left Corner):**", adj_matrix[0, :5, :5].cpu().numpy())
+                        if linguistic_features_tensor is not None:
+                            st.write("**Linguistic Features:**", linguistic_features_tensor.cpu().numpy())
 
 
-            except Exception as e:
-                st.error(f"An error occurred during prediction: {e}")
-                st.error(f"Details: {type(e).__name__}")
-                st.error("Check console logs.")
-        else:
-            st.warning("Please enter some text to analyze.")
-else:
-    st.warning("Model could not be loaded. Please check the file path, class definitions, config, and console logs.")
-    st.warning(f"Attempted to load from: {MODEL_PATH}") 
+                except Exception as e:
+                    st.error(f"An error occurred during prediction: {e}")
+                    st.error(f"Details: {type(e).__name__}")
+                    st.error("Check console logs.")
+            else:
+                st.warning("Please enter some text to analyze.")
+    else:
+        st.warning("Model could not be loaded. Please check the file path, class definitions, config, and console logs.")
+        st.warning(f"Attempted to load from: {MODEL_PATH}") 
