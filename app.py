@@ -76,17 +76,16 @@ LDA_HTML = """
 </script>
 """
 
-# Sidebar dengan Option Menu
 with st.sidebar:
     selected = option_menu(
         menu_title="Menu",
-        options=["EDA", "pyLDAvis Visualization", "Model Evaluation", "User Input"],
+        options=["EDA", "LDA Visualization", "Model Evaluation", "User Input"],
         icons=["bar-chart-line", "graph-up", "clipboard-data", "input-cursor-text"],
-        menu_icon=None,  # Tidak ada icon utama di menu
-        default_index=0,  # Halaman default saat pertama kali dibuka
+        menu_icon=None,
+        default_index=0,
          styles={
             "container": {"background-color": "rgba(0,0,0,0)",
-                          "width": "100%" },  # Sidebar transparan
+                          "width": "100%" }, 
          }    )
 
 if selected == "EDA":
@@ -138,51 +137,49 @@ if selected == "EDA":
     with col7:
         st.image("assets/img/eda/negative-reviews-word.png", use_container_width=True)
 
-elif selected == "pyLDAvis Visualization":
-    st.title("📊 pyLDAvis Visualization")
+elif selected == "LDA Visualization":
+    st.title("📊 LDA Visualization")
     components.html(LDA_HTML, height=800, scrolling=True)
 
 elif selected == "Model Evaluation":
     st.header("📊 Model Evaluation")
 
-    # Pilihan model yang tersedia
     model_options = ["BERT-LSTM-CNN", "BERT-LSTM-GCN", "BERT", "CNN", "GCN", "LSTM"]
+    slcted_model = st.selectbox("Pilih Model untuk Evaluasi:", model_options)
 
-    # Dropdown untuk memilih model
-    selected_model = st.selectbox("Pilih Model untuk Evaluasi:", model_options)
+    st.subheader(f"📈 Evaluasi Model: {slcted_model}")
 
-    # Menampilkan judul sesuai model yang dipilih
-    st.subheader(f"📈 Evaluasi Model: {selected_model}")
-
-    # Konten berbeda berdasarkan model yang dipilih
     BASE_PATH = "assets/img/modeling"
-    MODEL_PATH = f"{BASE_PATH}/default"
+    MDL_PATH = f"{BASE_PATH}/default"
 
-    if selected_model == "BERT-LSTM-CNN":
-        MODEL_PATH = f"{BASE_PATH}/bert-lstm-cnn"
-    elif selected_model == "BERT-LSTM-GCN":
-        MODEL_PATH = f"{BASE_PATH}/bert-lstm-gcn"
-    elif selected_model == "BERT":
-        MODEL_PATH = f"{BASE_PATH}/bert"
-    elif selected_model == "CNN":
-        MODEL_PATH = f"{BASE_PATH}/cnn"
-    elif selected_model == "GCN":
-        MODEL_PATH = f"{BASE_PATH}/gcn"
-    elif selected_model == "LSTM":
-        MODEL_PATH = f"{BASE_PATH}/lstm"
+    if slcted_model == "BERT-LSTM-CNN":
+        MDL_PATH = f"{BASE_PATH}/bert-lstm-cnn"
+    elif slcted_model == "BERT-LSTM-GCN":
+        MDL_PATH = f"{BASE_PATH}/bert-lstm-gcn"
+    elif slcted_model == "BERT":
+        MDL_PATH = f"{BASE_PATH}/bert"
+    elif slcted_model == "CNN":
+        MDL_PATH = f"{BASE_PATH}/cnn"
+    elif slcted_model == "GCN":
+        MDL_PATH = f"{BASE_PATH}/gcn"
+    elif slcted_model == "LSTM":
+        MDL_PATH = f"{BASE_PATH}/lstm"
 
-    # Menampilkan Evaluasi Model
-    st.write(f"🔍 **Evaluasi Model {selected_model}**")
-    st.image(f"{MODEL_PATH}/{selected_model.lower()}-training-curves.png", use_container_width=True)
-    st.write(f"Model {selected_model} digunakan untuk meningkatkan performa klasifikasi.")
+    st.write(f"🔍 **Evaluasi Model {slcted_model}**")
+    col1 = st.columns([1, 4, 1])
+    with col1[1]:
+        st.image(f"{MDL_PATH}/{slcted_model.lower()}-training-curves.png", use_container_width=True)
 
-    # Menampilkan Confusion Matrix
-    st.write(f"🔍 **Confusion Matrix Model {selected_model}**")
-    st.image(f"{MODEL_PATH}/{selected_model.lower()}-conf-matrix.png", use_container_width=True)
+    st.write(f"🔍 **Confusion Matrix Model {slcted_model}**")
+    col2 = st.columns([1, 4, 1])
+    with col2[1]:
+        st.image(f"{MDL_PATH}/{slcted_model.lower()}-conf-matrix.png", use_container_width=True)
 
-    # Menampilkan Graph Model
-    st.write(f"🔍 **Graph Model {selected_model}**")
-    st.image(f"{MODEL_PATH}/{selected_model.lower()}-graph.png", use_container_width=True)
+    st.write(f"🔍 **Model Evaluation {slcted_model}**")
+    col3 = st.columns([1, 4, 1])
+    with col3[1]:
+        st.image(f"{MDL_PATH}/cr-{slcted_model.lower()}.png", use_container_width=True)
+
 
 elif selected == "User Input":
     st.title("✍️ User Input")
